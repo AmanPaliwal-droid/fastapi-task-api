@@ -1,0 +1,109 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mongodb:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: taskdb
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://root:rootpassword@mongodb:27017/taskdb?authSource=admin
+      - APP_ENV=production
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    volumes:
+      - .:/app
+
+  worker-high:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://root:rootpassword@mongodb:27017/taskdb?authSource=admin
+      - WORKER_QUEUES=high,medium,low
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app worker --loglevel=info --queues=high,medium,low --concurrency=4 --hostname=worker-high@%h
+    volumes:
+      - .:/app
+
+  worker-medium:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://root:rootpassword@mongodb:27017/taskdb?authSource=admin
+      - WORKER_QUEUES=medium,low
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app worker --loglevel=info --queues=medium,low --concurrency=2 --hostname=worker-medium@%h
+    volumes:
+      - .:/app
+
+  worker-low:
+    build: .
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - MONGODB_URL=mongodb://root:rootpassword@mongodb:27017/taskdb?authSource=admin
+      - WORKER_QUEUES=low
+    depends_on:
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    command: celery -A app.workers.celery_app worker --loglevel=info --queues=low --concurrency=1 --hostname=worker-low@%h
+    volumes:
+      - .:/app
+
+  flower:
+    build: .
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    command: celery -A app.workers.celery_app flower --port=5555
+    volumes:
+      - .:/app
+
+volumes:
+  redis_data:
+  mongo_data:
