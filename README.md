@@ -1,4 +1,4 @@
-# XAVI AI — Prioritized Async Task Processing System
+# Prioritized Async Task Processing System
 
 A production-grade async task processing system built with **FastAPI**, **Celery**, **Redis**, and **MongoDB**. Implements strict priority enforcement, distributed locking, idempotent retries, and at-least-once delivery guarantees.
 
